@@ -1,0 +1,191 @@
+version: "3.8"
+
+services:
+    auth-service:
+        image: tanasescuchrys/idp:proiect-auth
+        ports:
+            - 3000:3000
+        environment:
+            BUSINESS_SERVICE_ROUTE: business-service/api
+            NODE_ENV: staging
+            PGUSER: admin
+            PGPASSWORD: admin
+            PGHOST: auth-db
+            PGPORT: 5433
+            PGDATABASE: auth
+            JWT_SECRET_KEY: myawesomeultrasecretkey
+            JWT_ISSUER: idpauth
+            JWT_SUBJECT: pw
+            JWT_AUDIENCE: idpclient
+        deploy:
+            replicas: 5
+            placement:
+                max_replicas_per_node: 2
+            update_config:
+                order: start-first
+            rollback_config:
+                order: stop-first
+        networks:
+            - internal
+            - auth-database
+
+    business-service:
+        image: tanasescuchrys/idp:proiect-business
+        ports:
+            - 3100:80
+        environment:
+            DB_LOGIC_ROUTE: db-logic/api
+            NODE_ENV: development
+            PORT: 80
+        deploy:
+            replicas: 5
+            placement:
+                max_replicas_per_node: 2
+            update_config:
+                order: start-first
+            rollback_config:
+                order: stop-first
+        networks:
+            - internal
+            - banking
+
+    db-logic:
+        image: tanasescuchrys/idp:proiect-io
+        ports:
+            - 3200:80
+        environment:
+            PGUSER: admin
+            PGPASSWORD: admin
+            PGHOST: business-db
+            PGPORT: 5432
+            PGDATABASE: business
+            NODE_ENV: development
+            PORT: 80
+        deploy:
+            replicas: 5
+            placement:
+                max_replicas_per_node: 2
+            update_config:
+                order: start-first
+            rollback_config:
+                order: stop-first
+        networks:
+            - banking
+            - business-database
+
+    auth-db:
+        image: postgres:12
+        ports:
+            - 5433:5433
+        expose:
+            - "5433"
+        environment:
+            POSTGRES_DB: auth
+            POSTGRES_USER: admin
+            POSTGRES_PASSWORD: admin
+        deploy:
+            placement:
+                constraints:
+                    - "node.role==manager"
+        volumes:
+            - ./auth-db/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+            - auth-db-volume:/var/lib/postgresql/data
+        networks:
+            - auth-database
+        command: -p 5433
+
+    business-db:
+        image: postgres:12
+        ports:
+            - 5432:5432
+        environment:
+            POSTGRES_DB: business
+            POSTGRES_USER: admin
+            POSTGRES_PASSWORD: admin
+        deploy:
+            placement:
+                constraints:
+                    - "node.role==manager"
+        volumes:
+            - ./Database/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+            - business-db-volume:/var/lib/postgresql/data
+        networks:
+            - business-database
+            - business-database-admin
+
+    business-adminer:
+        image: adminer
+        ports:
+            - 8888:8080
+        networks:
+            - business-database-admin
+            - internal
+
+    kong:
+        image: kong:latest
+        volumes:
+            - ./Kong:/usr/local/kong/declarative
+        environment:
+            KONG_DATABASE: 'off'
+            KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+            KONG_PROXY_ACCESS_LOG: /dev/stdout
+            KONG_ADMIN_ACCESS_LOG: /dev/stdout
+            KONG_PROXY_ERROR_LOG: /dev/stderr
+            KONG_ADMIN_ERROR_LOG: /dev/stderr
+            KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+        ports:
+            - 8000:8000
+            - 8001:8001
+            - 8443:8443
+            - 8444:8444
+        deploy:
+            placement:
+                constraints: [node.role==manager]
+        networks:
+            - internal
+            - logging
+
+    agent:
+        image: portainer/agent
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /var/lib/docker/volumes:/var/lib/docker/volumes
+        networks:
+            - agent_network
+        deploy:
+            mode: global
+            placement:
+                constraints: [node.platform.os == linux]
+
+    portainer:
+        image: portainer/portainer-ce
+        command: -H tcp://tasks.agent:9001 --tlsskipverify
+        ports:
+            - "9000:9000"
+        volumes:
+            - portainer_data:/data
+        networks:
+            - agent_network
+        deploy:
+            mode: replicated
+            replicas: 1
+            placement:
+                constraints: [node.role == manager]
+
+volumes:
+    business-db-volume:
+    auth-db-volume:
+    portainer_data:
+
+networks:
+    internal:
+    banking:
+    auth-database:
+    business-database:
+    business-database-admin:
+    logging:
+    agent_network:
+        driver: overlay
+        attachable: true
+
+            

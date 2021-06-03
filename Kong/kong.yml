@@ -1,0 +1,27 @@
+_format_version: "2.1"
+
+services:
+  - name: auth-service
+    url: http://auth-service:3000/
+    routes:
+      - name: auth-service-route
+        paths:
+          - /app
+
+  - name: business-adminer
+    url: http://business-adminer:8888
+    routes:
+      - name: business-adminer-service
+        paths:
+          - /adminer
+
+plugins:
+  - name: rate-limiting
+    config:
+      minute: 10
+      limit_by: ip
+      policy: local
+
+  - name: bot-detection
+
+
